@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.analyzers.dependency import build_dependency_edges
@@ -18,6 +19,14 @@ from backend.analyzers.repository import walk_repository
 from backend.models.graph import build_graph, graph_to_json
 
 app = FastAPI(title="Git DNA")
+
+# Allow the Vite dev server (and any localhost origin) to call this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 _CACHE_DIR = Path("cache")
 
