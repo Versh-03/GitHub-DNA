@@ -1,5 +1,7 @@
 # Git DNA — Requirements & Specification
 
+> **Last updated:** README written and Milestones 1–5 complete. See [Section 16](#16-implementation-status) for current status.
+
 ## 1. Project Summary
 
 Git DNA is a developer onboarding and repository-understanding tool. Given a
@@ -86,49 +88,47 @@ No database. No auth. No cloud deployment required — runs locally.
 
 **Backend:** Python 3.11+, FastAPI, uvicorn, GitPython, networkx, pytest
 
-**Frontend:** React + Vite, React Flow, fetch/axios
+**Frontend:** React 18 + Vite 6, `@xyflow/react` (React Flow v12), dagre (graph layout), vanilla CSS
 
 **Analysis:** Python standard library (`ast`, `pathlib`, `os`), GitPython
 
-## 7. Repository Structure (target)
+## 7. Repository Structure (actual)
 
 ```
-git-dna/
+GitHub-DNA/
 ├── backend/
 │   ├── api/
-│   │   └── main.py
+│   │   └── main.py              ✅ FastAPI app, POST /analyze, CORS, JSON cache
 │   ├── analyzers/
-│   │   ├── repository.py      # file/dir structure analysis
-│   │   ├── dependency.py      # ast-based import graph
-│   │   └── git_history.py     # git log analysis
+│   │   ├── repository.py        ✅ file walk + classification
+│   │   ├── dependency.py        ✅ AST-based import graph builder
+│   │   ├── git_history.py       ✅ GitPython commit history per file
+│   │   └── metrics.py           ✅ repository metrics aggregator
 │   └── models/
-│       └── graph.py           # networkx graph builder + JSON export
+│       └── graph.py             ✅ NetworkX graph builder + JSON export
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── GraphView.jsx
-│   │   │   └── StatsPanel.jsx
-│   │   └── App.jsx
-│   └── ...
+│   │   │   ├── GraphView.jsx    ✅ React Flow + Dagre layout (smart: DAG for connected, grid for isolated)
+│   │   │   ├── StatsPanel.jsx   ✅ left sidebar metrics display
+│   │   │   └── FileDetailPanel.jsx  ✅ click-to-details node popup (added beyond original plan)
+│   │   ├── App.jsx              ✅ root component + fetch logic
+│   │   └── index.css            ✅ dark GitHub-inspired theme
+│   ├── index.html
+│   ├── vite.config.js
+│   └── package.json
 ├── tests/
-│   ├── test_repository.py
-│   ├── test_dependency.py
-│   └── test_git_history.py
+│   ├── test_repository.py       ✅ pytest suite
+│   ├── test_dependency.py       ✅ pytest suite
+│   ├── test_git_history.py      ✅ pytest suite
+│   └── test_graph_metrics.py    ✅ pytest suite (added beyond original plan)
 ├── docs/
-│   ├── GIT_DNA_REQUIREMENTS.md  (this file)
-│   ├── architecture.md
-│   └── workflow.md
-├── bob-evidence/
-│   ├── plan.png
-│   ├── document-understanding.png
-│   ├── agent.png
-│   ├── subagents.png
-│   ├── parallel-tasks.png
-│   ├── final-result.png
-│   └── LOG.md
-├── sample-repository/          # the repo Git DNA analyzes for the demo
-├── README.md
-└── requirements.txt / package.json
+│   ├── architecture.md          (this file)
+│   └── plan/
+│       └── phase1-plan.md
+├── cache/                       ✅ runtime JSON cache directory
+├── README.md                    ✅ written
+└── requirements.txt
 ```
 
 ## 8. Data Model
@@ -233,10 +233,55 @@ development tool. Intended usage of Bob's features:
 
 ## 15. Definition of Done (V1 / MVP)
 
-- [ ] Can point Git DNA at a local Python repo and get back structure,
+- [x] Can point Git DNA at a local Python repo and get back structure,
       dependencies, and git history via `/analyze`.
-- [ ] Frontend displays stats panel and interactive dependency graph.
-- [ ] pytest suite passes for all analyzer modules.
+- [x] Frontend displays stats panel and interactive dependency graph.
+- [x] pytest suite passes for all analyzer modules.
 - [ ] Real before/after metrics recorded in README table.
 - [ ] Bob evidence collected across Plan/Agent/Subagents/Parallel/Testing.
 - [ ] Repository is public, structured as in Section 7.
+
+---
+
+## 16. Implementation Status
+
+### Completed (Milestones 1–5)
+
+All core backend analyzers and the full frontend MVP have been implemented.
+
+**Backend — fully implemented:**
+- `repository.py` — file walker with type classification; excludes `.git`, `node_modules`, `__pycache__`, `venv`, `dist`, `build`
+- `dependency.py` — Python AST import parser; handles `import x`, `from x import y`, dotted module paths (`a.b.c` → `a/b/c.py`); skips external libraries silently; handles `SyntaxError` gracefully
+- `git_history.py` — GitPython-based; returns total commits, unique contributor count, per-file commit counts, top-10 most-changed files; handles `InvalidGitRepositoryError` gracefully
+- `metrics.py` — aggregates total/source/test/doc file counts, directory count, top-connected files (NetworkX in+out degree), largest files, total edges
+- `graph.py` — builds a NetworkX `DiGraph`; exports `{nodes, edges}` JSON with `commit_count` merged onto each node
+- `main.py` — FastAPI app with `POST /analyze`; full pipeline wired (walk → deps → git → graph → metrics); SHA-256-keyed JSON cache in `cache/`; CORS enabled
+
+**Frontend — fully implemented (beyond original plan):**
+- `GraphView.jsx` — React Flow v12 with Dagre hierarchical layout for connected components; compact grid fallback for isolated nodes; colour-coded nodes by file type (blue=source, green=test, orange=docs, purple=config); node labels show filename + type + commit count; directional edges; pan/zoom/minimap/fit-to-view controls
+- `StatsPanel.jsx` — left sidebar showing all metrics; top-connected files, top-changed files, largest files
+- `FileDetailPanel.jsx` — floating panel on node click showing full file metadata, incoming and outgoing dependencies *(added beyond original plan)*
+- `App.jsx` — repo path input, Analyze button, loading/error states, state management
+- Dark GitHub-inspired CSS theme
+
+**Tests — fully implemented (beyond original plan):**
+- `test_repository.py`, `test_dependency.py`, `test_git_history.py`, `test_graph_metrics.py` *(4th test file added beyond original plan)*
+
+**README — written** (`README.md` now contains project title, problem, features, architecture, tech stack, run instructions, example API call, and milestone status table)
+
+### Changes vs. Original Plan
+
+| Item | Plan said | What was built |
+|---|---|---|
+| Frontend graph layout | Basic fixed grid or simple layout | Smart Dagre (hierarchical) for connected components + grid for isolated nodes |
+| Frontend components | `GraphView.jsx` + `StatsPanel.jsx` | Also added `FileDetailPanel.jsx` (click-to-details node popup) |
+| Test files | 3 test files | 4 test files (`test_graph_metrics.py` added) |
+| Frontend library | `@xyflow/react` (React Flow) | `@xyflow/react` v12 + `dagre` for layout |
+| Node styling | Not specified | Color-coded by file type, shows commit count |
+| `index.css` | Not specified | Dark GitHub-inspired theme added |
+
+### Pending (Milestones 6–8)
+
+- **Milestone 6** — Select and commit a sample Python repository (~30–60 files); run Git DNA against it; fix any edge cases discovered
+- **Milestone 7** — Record real timed before/after measurements on the sample repo; fill in the metrics table in `README.md`
+- **Milestone 8** — Collect Bob evidence (screenshots of Plan/Agent/Subagents/Parallel/Testing); finalize `README.md`; record demo video; make repository public

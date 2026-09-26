@@ -36,18 +36,18 @@ local git repo and classifying every file into a category (source, test,
 docs, config, other).
 
 ### Status
-`[ ] pending`
+`[x] done`
 
 ### Files / Components Involved
 ```
 backend/
   analyzers/
-    repository.py      ← NEW: file walk + classification logic
+    repository.py      ✅ file walk + classification logic
   api/
-    main.py            ← NEW: FastAPI app shell, /analyze stub endpoint
+    main.py            ✅ FastAPI app shell, /analyze stub endpoint
 tests/
-  test_repository.py   ← NEW: unit tests for repository.py
-requirements.txt       ← NEW: backend Python dependencies
+  test_repository.py   ✅ unit tests for repository.py
+requirements.txt       ✅ backend Python dependencies
 ```
 
 ### Dependencies
@@ -102,15 +102,15 @@ statements using the standard-library `ast` module and produce a list of
 directed edges representing which file depends on which module.
 
 ### Status
-`[ ] pending`
+`[x] done`
 
 ### Files / Components Involved
 ```
 backend/
   analyzers/
-    dependency.py      ← NEW: ast import parsing + edge building
+    dependency.py      ✅ ast import parsing + edge building
 tests/
-  test_dependency.py   ← NEW: unit tests for dependency.py
+  test_dependency.py   ✅ unit tests for dependency.py
 ```
 
 ### Dependencies
@@ -159,15 +159,15 @@ per file, total commit count, unique contributors, and the top most-changed
 files.
 
 ### Status
-`[ ] pending`
+`[x] done`
 
 ### Files / Components Involved
 ```
 backend/
   analyzers/
-    git_history.py     ← NEW: GitPython-based log analysis
+    git_history.py     ✅ GitPython-based log analysis
 tests/
-  test_git_history.py  ← NEW: unit tests for git_history.py
+  test_git_history.py  ✅ unit tests for git_history.py
 ```
 
 ### Dependencies
@@ -222,17 +222,19 @@ final set of repository-level metrics. Export the graph as a JSON structure
 the frontend can consume directly.
 
 ### Status
-`[ ] pending`
+`[x] done`
 
 ### Files / Components Involved
 ```
 backend/
   models/
-    graph.py           ← NEW: networkx graph builder + JSON export
+    graph.py           ✅ networkx graph builder + JSON export
   analyzers/
-    metrics.py         ← NEW: aggregator function
+    metrics.py         ✅ aggregator function
   api/
-    main.py            ← MODIFIED: wire everything together, add JSON cache
+    main.py            ✅ full pipeline wired, JSON cache added
+tests/
+  test_graph_metrics.py  ✅ added beyond original plan
 ```
 
 ### Dependencies
@@ -291,20 +293,29 @@ the metrics in a summary panel, and renders the dependency graph
 interactively with React Flow.
 
 ### Status
-`[ ] pending`
+`[x] done`
 
 ### Files / Components Involved
 ```
 frontend/
   src/
-    App.jsx                  ← NEW: root component, fetch logic
+    App.jsx                     ✅ root component, fetch logic, loading/error states
+    index.css                   ✅ dark GitHub-inspired theme (added beyond plan)
     components/
-      StatsPanel.jsx         ← NEW: displays metrics dict
-      GraphView.jsx          ← NEW: renders React Flow graph
+      StatsPanel.jsx            ✅ displays metrics dict
+      GraphView.jsx             ✅ React Flow + Dagre layout (smart: DAG + grid)
+      FileDetailPanel.jsx       ✅ click-to-details node popup (added beyond plan)
   index.html
   vite.config.js
-package.json                 ← NEW: React, Vite, React Flow deps
+package.json                    ✅ React 18, Vite 6, @xyflow/react v12, dagre
 ```
+
+### Additions beyond original plan
+- `FileDetailPanel.jsx` — floating node detail popup showing incoming/outgoing deps
+- Dagre hierarchical layout for connected components (plan said "basic fixed grid")
+- Node colour-coding by file type
+- Node labels include filename, type, and commit count
+- Dark CSS theme (`index.css`)
 
 ### Dependencies
 - Milestone 4 complete (backend returns unified JSON)
@@ -352,7 +363,7 @@ commit history) as `sample-repository/`. Run Git DNA against it, verify
 output quality, and fix any edge cases discovered.
 
 ### Status
-`[ ] pending`
+`[ ] pending — next milestone`
 
 ### Files / Components Involved
 ```
@@ -486,10 +497,10 @@ from M1, not each other's code). M4 depends on both.
 
 ## Definition of Done (from spec §15)
 
-- [ ] Can point Git DNA at a local Python repo and get back structure,
+- [x] Can point Git DNA at a local Python repo and get back structure,
       dependencies, and git history via `/analyze`.
-- [ ] Frontend displays stats panel and interactive dependency graph.
-- [ ] pytest suite passes for all analyzer modules.
+- [x] Frontend displays stats panel and interactive dependency graph.
+- [x] pytest suite passes for all analyzer modules.
 - [ ] Real before/after metrics recorded in README table.
 - [ ] Bob evidence collected across Plan/Agent/Subagents/Parallel/Testing.
 - [ ] Repository is public, structured as in Section 7 of architecture.md.
