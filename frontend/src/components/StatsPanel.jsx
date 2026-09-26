@@ -3,8 +3,8 @@
  */
 
 const PANEL_STYLE = {
-  background: '#f7f8fa',
-  border: '1px solid #e5e7eb',
+  background: '#161b22',
+  border: '1px solid #30363d',
   borderRadius: '8px',
   padding: '1rem',
   overflowY: 'auto',
@@ -18,13 +18,13 @@ const SECTION_STYLE = {
 const ROW_STYLE = {
   display: 'flex',
   justifyContent: 'space-between',
-  padding: '3px 0',
-  borderBottom: '1px solid #e5e7eb',
+  padding: '4px 0',
+  borderBottom: '1px solid #21262d',
   fontSize: '13px',
 }
 
-const LABEL_STYLE = { color: '#57606a' }
-const VALUE_STYLE = { fontWeight: 600, fontFamily: 'monospace' }
+const LABEL_STYLE = { color: '#7d8590' }
+const VALUE_STYLE = { fontWeight: 600, fontFamily: 'monospace', color: '#e6edf3' }
 
 function StatRow({ label, value }) {
   return (
@@ -36,16 +36,16 @@ function StatRow({ label, value }) {
 }
 
 function FileList({ items, pathKey = 'path', valueKey, valueLabel }) {
-  if (!items || items.length === 0) return <p style={{ color: '#57606a', fontSize: '12px' }}>None</p>
+  if (!items || items.length === 0) return <p style={{ color: '#7d8590', fontSize: '12px' }}>None</p>
   return (
     <ol style={{ paddingLeft: '1.25rem', fontSize: '12px', lineHeight: 1.7 }}>
       {items.map((item, i) => (
         <li key={i} title={item[pathKey]}>
-          <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+          <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: '#cdd9e5' }}>
             {item[pathKey].split('/').pop()}
           </span>
           {valueKey && (
-            <span style={{ color: '#57606a', marginLeft: '0.4rem' }}>
+            <span style={{ color: '#7d8590', marginLeft: '0.4rem' }}>
               ({valueLabel} {item[valueKey]})
             </span>
           )}
@@ -78,19 +78,19 @@ export default function StatsPanel({ metrics }) {
 
       {/* Summary counts */}
       <div style={SECTION_STYLE}>
-        <StatRow label="Total files"    value={total_files} />
-        <StatRow label="Source files"   value={source_files} />
-        <StatRow label="Test files"     value={test_files} />
-        <StatRow label="Doc files"      value={doc_files} />
-        <StatRow label="Directories"    value={directories} />
+        <StatRow label="Total files"      value={total_files} />
+        <StatRow label="Source files"     value={source_files} />
+        <StatRow label="Test files"       value={test_files} />
+        <StatRow label="Doc files"        value={doc_files} />
+        <StatRow label="Directories"      value={directories} />
         <StatRow label="Dependency edges" value={total_edges} />
       </div>
 
       {/* Git stats */}
       <div style={SECTION_STYLE}>
         <h2>Git History</h2>
-        <StatRow label="Total commits"     value={total_commits} />
-        <StatRow label="Contributors"      value={contributor_count} />
+        <StatRow label="Total commits" value={total_commits} />
+        <StatRow label="Contributors"  value={contributor_count} />
       </div>
 
       {/* Top changed files */}

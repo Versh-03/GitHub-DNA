@@ -44,7 +44,7 @@ export default function App() {
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header */}
-      <h1 style={{ marginBottom: '1rem' }}>🧬 Git DNA</h1>
+      <h1 style={{ marginBottom: '1rem', color: '#e6edf3' }}>🧬 Git DNA</h1>
 
       {/* Input row */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
@@ -57,10 +57,13 @@ export default function App() {
           style={{
             flex: 1,
             padding: '0.5rem 0.75rem',
-            border: '1px solid #e5e7eb',
+            background: '#161b22',
+            border: '1px solid #30363d',
             borderRadius: '6px',
             fontSize: '14px',
             fontFamily: 'monospace',
+            color: '#e6edf3',
+            outline: 'none',
           }}
         />
         <button
@@ -68,12 +71,13 @@ export default function App() {
           disabled={loading || !repoPath.trim()}
           style={{
             padding: '0.5rem 1.25rem',
-            background: loading ? '#57606a' : '#3b82d4',
-            color: '#fff',
-            border: 'none',
+            background: loading ? '#21262d' : '#1f6feb',
+            color: loading ? '#7d8590' : '#fff',
+            border: '1px solid #30363d',
             borderRadius: '6px',
             cursor: loading ? 'not-allowed' : 'pointer',
             fontWeight: 600,
+            fontSize: '14px',
           }}
         >
           {loading ? 'Analyzing…' : 'Analyze'}
@@ -84,9 +88,9 @@ export default function App() {
       {error && (
         <div
           style={{
-            background: '#fef2f2',
-            border: '1px solid #fca5a5',
-            color: '#991b1b',
+            background: '#1a0a0a',
+            border: '1px solid #6e2020',
+            color: '#f97583',
             borderRadius: '6px',
             padding: '0.75rem 1rem',
             marginBottom: '1.5rem',
@@ -100,7 +104,7 @@ export default function App() {
 
       {/* Results */}
       {result && (
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '1.5rem', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '1.5rem', alignItems: 'start' }}>
           <StatsPanel metrics={result.metrics} />
           <GraphView graph={result.graph} />
         </div>
