@@ -10,12 +10,17 @@ from pathlib import Path
 
 
 def extract_imports(file_path: str) -> list[str]:
-    """Parse *file_path* with ``ast`` and return the top-level module names imported.
+    """Parse *file_path* with ``ast`` and return all imported module strings.
 
-    Handles both ``import x.y.z`` (returns ``"x"``) and
-    ``from x.y import z`` (returns ``"x"``).
+    Returns both the full dotted name and the top-level name for each import
+    so the edge resolver can try both forms:
 
-    Returns an empty list and emits a ``SyntaxWarning`` on parse errors.
+    * ``import a.b.c``       → ["a.b.c", "a"]
+    * ``from a.b import c``  → ["a.b",   "a"]
+
+    Duplicates within the same file are preserved (deduplication happens in
+    the caller).  Returns an empty list and emits a ``SyntaxWarning`` on
+    parse errors.
     """
     try:
         source = Path(file_path).read_text(encoding="utf-8", errors="replace")
@@ -32,12 +37,18 @@ def extract_imports(file_path: str) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                # "import a.b.c" → top-level name is "a"
-                names.append(alias.name.split(".")[0])
+                full = alias.name                 # e.g. "a.b.c"
+                top  = full.split(".")[0]         # e.g. "a"
+                names.append(full)
+                if top != full:
+                    names.append(top)
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                # "from a.b import c" → top-level name is "a"
-                names.append(node.module.split(".")[0])
+                full = node.module                # e.g. "a.b"
+                top  = full.split(".")[0]         # e.g. "a"
+                names.append(full)
+                if top != full:
+                    names.append(top)
             # "from . import x" (relative, no module) — skip
     return names
 
@@ -51,7 +62,12 @@ def build_dependency_edges(file_list: list[dict], repo_path: str = ".") -> list[
 
     For each imported module name the function checks whether a matching
     file exists anywhere in *file_list* by converting the dotted module
-    path to a file path (``a.b.c`` → ``a/b/c.py``).
+    path to a file path (``a.b.c`` → ``a/b/c.py``).  Both the full dotted
+    path and the top-level name are tried, so imports such as::
+
+        from backend.analyzers.repository import walk_repository
+
+    correctly resolve to ``backend/analyzers/repository.py``.
 
     Each edge has the shape::
 
@@ -76,9 +92,9 @@ def build_dependency_edges(file_list: list[dict], repo_path: str = ".") -> list[
         seen: set[str] = set()  # deduplicate edges per source file
 
         for module_name in imports:
-            # Convert dotted module name to a relative .py path
+            # Convert dotted module name to a relative .py path and check
             candidate = module_name.replace(".", "/") + ".py"
-            if candidate in path_set and candidate not in seen:
+            if candidate in path_set and candidate != file_dict["path"] and candidate not in seen:
                 seen.add(candidate)
                 edges.append(
                     {

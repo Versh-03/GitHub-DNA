@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.analyzers.repository import walk_repository, _IGNORED_DIRS
+from backend.analyzers.repository import walk_repository, _IGNORED_DIRS, _IGNORED_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +243,42 @@ class TestIgnoredDirectories:
         paths = self._paths(tmp_path)
         assert "app.py" in paths
         assert "utils/helpers.py" in paths
+
+
+class TestBytecodeExclusion:
+    """Compiled .pyc/.pyo files must never appear in walk results."""
+
+    def test_pyc_at_root_excluded(self, tmp_path: Path):
+        """A .pyc file sitting directly at the repo root is excluded."""
+        (tmp_path / "app.pyc").write_bytes(b"\x00bytecode")
+        (tmp_path / "app.py").write_text("x = 1")
+        results = walk_repository(str(tmp_path))
+        paths = [r["path"] for r in results]
+        assert "app.pyc" not in paths
+        assert "app.py" in paths
+
+    def test_pyo_excluded(self, tmp_path: Path):
+        """A .pyo file is also excluded."""
+        (tmp_path / "app.pyo").write_bytes(b"\x00bytecode")
+        results = walk_repository(str(tmp_path))
+        paths = [r["path"] for r in results]
+        assert "app.pyo" not in paths
+
+    def test_pyc_in_subdir_excluded(self, tmp_path: Path):
+        """A .pyc in a source subdirectory (outside __pycache__) is excluded."""
+        sub = tmp_path / "utils"
+        sub.mkdir()
+        (sub / "helpers.pyc").write_bytes(b"\x00")
+        (sub / "helpers.py").write_text("x = 1")
+        results = walk_repository(str(tmp_path))
+        paths = [r["path"] for r in results]
+        assert "utils/helpers.pyc" not in paths
+        assert "utils/helpers.py" in paths
+
+    def test_ignored_extensions_set_contains_pyc_and_pyo(self):
+        """_IGNORED_EXTENSIONS must contain both .pyc and .pyo."""
+        assert ".pyc" in _IGNORED_EXTENSIONS
+        assert ".pyo" in _IGNORED_EXTENSIONS
 
 
 class TestRelativePaths:

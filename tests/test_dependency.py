@@ -36,20 +36,29 @@ class TestExtractImports:
         path = _write(tmp_path, "a.py", "import os\n")
         assert extract_imports(path) == ["os"]
 
-    def test_dotted_import_returns_top_level(self, tmp_path: Path):
-        """``import os.path`` → top-level name 'os'"""
+    def test_dotted_import_returns_full_and_top(self, tmp_path: Path):
+        """``import os.path`` → both 'os.path' and 'os' are returned."""
         path = _write(tmp_path, "a.py", "import os.path\n")
+        result = extract_imports(path)
+        assert "os.path" in result
+        assert "os" in result
+
+    def test_simple_import_returns_name_once(self, tmp_path: Path):
+        """``import os`` (no dots) → only 'os', not duplicated."""
+        path = _write(tmp_path, "a.py", "import os\n")
         assert extract_imports(path) == ["os"]
 
     def test_from_import(self, tmp_path: Path):
-        """``from pathlib import Path`` → ['pathlib']"""
+        """``from pathlib import Path`` → ['pathlib'] (single component, no top appended)."""
         path = _write(tmp_path, "a.py", "from pathlib import Path\n")
         assert extract_imports(path) == ["pathlib"]
 
-    def test_from_dotted_import_returns_top_level(self, tmp_path: Path):
-        """``from os.path import join`` → top-level name 'os'"""
+    def test_from_dotted_import_returns_full_and_top(self, tmp_path: Path):
+        """``from os.path import join`` → both 'os.path' and 'os' are returned."""
         path = _write(tmp_path, "a.py", "from os.path import join\n")
-        assert extract_imports(path) == ["os"]
+        result = extract_imports(path)
+        assert "os.path" in result
+        assert "os" in result
 
     def test_multiple_imports(self, tmp_path: Path):
         """Multiple import statements are all collected."""
@@ -152,17 +161,73 @@ class TestBuildDependencyEdges:
         edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
         assert len(edges) == 1
 
-    def test_nested_module_path_resolved(self, tmp_path: Path):
-        """``import backend.analyzers.repository`` → target ``backend/analyzers/repository.py``."""
+    def test_dotted_import_statement_resolves_full_path(self, tmp_path: Path):
+        """``import backend.analyzers.repository`` → edge to backend/analyzers/repository.py."""
         _write(tmp_path, "app.py", "import backend.analyzers.repository\n")
         _write(tmp_path, "backend/analyzers/repository.py", "x = 1\n")
         file_list = [
-            {"path": "app.py",                              "file_type": "source", "size_bytes": 38},
-            {"path": "backend/analyzers/repository.py",     "file_type": "source", "size_bytes": 6},
+            {"path": "app.py",                          "file_type": "source", "size_bytes": 38},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 6},
         ]
         edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
-        # Only the top-level name "backend" → "backend.py" is tried, which doesn't exist.
-        # So this confirms the spec's "top-level name only" behaviour: no edge.
+        assert len(edges) == 1
+        assert edges[0]["source"] == "app.py"
+        assert edges[0]["target"] == "backend/analyzers/repository.py"
+
+    def test_from_dotted_import_resolves_full_path(self, tmp_path: Path):
+        """``from backend.analyzers.repository import walk_repository`` → edge to the module file."""
+        _write(tmp_path, "app.py", "from backend.analyzers.repository import walk_repository\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        file_list = [
+            {"path": "app.py",                          "file_type": "source", "size_bytes": 56},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 28},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["source"] == "app.py"
+        assert edges[0]["target"] == "backend/analyzers/repository.py"
+
+    def test_from_dotted_import_multi_level(self, tmp_path: Path):
+        """All from-import forms in the real Git DNA backend resolve correctly."""
+        _write(tmp_path, "backend/api/main.py",
+               "from backend.analyzers.repository import walk_repository\n"
+               "from backend.analyzers.dependency import build_dependency_edges\n"
+               "from backend.models.graph import build_graph\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        _write(tmp_path, "backend/analyzers/dependency.py", "def build_dependency_edges(): pass\n")
+        _write(tmp_path, "backend/models/graph.py",         "def build_graph(): pass\n")
+        file_list = [
+            {"path": "backend/api/main.py",                 "file_type": "source", "size_bytes": 120},
+            {"path": "backend/analyzers/repository.py",     "file_type": "source", "size_bytes": 28},
+            {"path": "backend/analyzers/dependency.py",     "file_type": "source", "size_bytes": 35},
+            {"path": "backend/models/graph.py",             "file_type": "source", "size_bytes": 25},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        targets = {e["target"] for e in edges}
+        assert "backend/analyzers/repository.py" in targets
+        assert "backend/analyzers/dependency.py" in targets
+        assert "backend/models/graph.py" in targets
+        assert all(e["source"] == "backend/api/main.py" for e in edges)
+
+    def test_top_level_import_still_resolves(self, tmp_path: Path):
+        """Simple single-component imports (import utils) still produce edges."""
+        _write(tmp_path, "utils.py", "x = 1\n")
+        _write(tmp_path, "app.py", "import utils\n")
+        file_list = [
+            {"path": "app.py",   "file_type": "source", "size_bytes": 14},
+            {"path": "utils.py", "file_type": "source", "size_bytes": 6},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["target"] == "utils.py"
+
+    def test_no_self_edge_from_dotted_import(self, tmp_path: Path):
+        """A file cannot produce an edge to itself via a dotted import."""
+        _write(tmp_path, "backend/api/main.py", "from backend.api.main import app\n")
+        file_list = [
+            {"path": "backend/api/main.py", "file_type": "source", "size_bytes": 33},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
         assert edges == []
 
     def test_multiple_files_multiple_edges(self, tmp_path: Path):

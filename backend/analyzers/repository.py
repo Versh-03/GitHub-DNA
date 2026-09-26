@@ -10,6 +10,9 @@ from pathlib import Path
 _DOCS_EXTENSIONS = {".md", ".rst", ".txt"}
 _CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml", ".cfg", ".ini"}
 
+# File extensions that are always excluded regardless of directory.
+_IGNORED_EXTENSIONS = {".pyc", ".pyo"}
+
 # Directory names that are always skipped during the walk.
 # Checked against every path *component* so nested occurrences are also pruned.
 _IGNORED_DIRS = {
@@ -83,8 +86,12 @@ def walk_repository(repo_path: str) -> list[dict]:
 
         rel = abs_path.relative_to(root)
 
-        # Skip anything whose path contains an ignored directory component
+        # Skip ignored directory components (e.g. __pycache__, node_modules)
         if _IGNORED_DIRS.intersection(rel.parts):
+            continue
+
+        # Skip compiled / bytecode files regardless of location
+        if abs_path.suffix.lower() in _IGNORED_EXTENSIONS:
             continue
 
         results.append(
