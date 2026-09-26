@@ -2,25 +2,38 @@ import { useState } from 'react'
 import StatsPanel from './components/StatsPanel.jsx'
 import GraphView from './components/GraphView.jsx'
 
-const API_URL = 'http://localhost:8000/analyze'
+const API_BASE = 'http://localhost:8000'
+
+// Detect whether the input looks like a GitHub HTTPS URL.
+function isGitHubURL(value) {
+  return value.trim().startsWith('https://github.com/')
+}
 
 export default function App() {
-  const [repoPath, setRepoPath] = useState('')
+  const [input, setInput] = useState('')
   const [result, setResult] = useState(null)   // { graph, metrics }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  const usingGitHub = isGitHubURL(input)
+
   async function handleAnalyze() {
-    if (!repoPath.trim()) return
+    const value = input.trim()
+    if (!value) return
     setLoading(true)
     setError(null)
     setResult(null)
 
     try {
-      const res = await fetch(API_URL, {
+      const endpoint = usingGitHub ? `${API_BASE}/analyze-github` : `${API_BASE}/analyze`
+      const body = usingGitHub
+        ? JSON.stringify({ github_url: value })
+        : JSON.stringify({ repo_path: value })
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_path: repoPath.trim() }),
+        body,
       })
 
       if (!res.ok) {
@@ -41,19 +54,46 @@ export default function App() {
     if (e.key === 'Enter') handleAnalyze()
   }
 
+  // Badge shown next to the input to indicate current mode.
+  const modeBadge = usingGitHub
+    ? { label: 'GitHub URL', color: '#238636', border: '#2ea043' }
+    : { label: 'Local path', color: '#1c2128', border: '#30363d' }
+
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header */}
-      <h1 style={{ marginBottom: '1rem', color: '#e6edf3' }}>🧬 Git DNA</h1>
+      <h1 style={{ marginBottom: '0.5rem', color: '#e6edf3' }}>🧬 Git DNA</h1>
+      <p style={{ color: '#7d8590', fontSize: '13px', marginBottom: '1.25rem' }}>
+        Enter a <strong style={{ color: '#e6edf3' }}>GitHub URL</strong>
+        {' '}(e.g. <code style={{ color: '#79c0ff' }}>https://github.com/owner/repo</code>)
+        {' '}or an <strong style={{ color: '#e6edf3' }}>absolute local path</strong> to a Python repository.
+      </p>
 
       {/* Input row */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+        {/* Mode badge */}
+        <span
+          style={{
+            flexShrink: 0,
+            padding: '0.3rem 0.6rem',
+            background: modeBadge.color,
+            border: `1px solid ${modeBadge.border}`,
+            borderRadius: '6px',
+            fontSize: '11px',
+            fontWeight: 600,
+            color: '#e6edf3',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {modeBadge.label}
+        </span>
+
         <input
           type="text"
-          value={repoPath}
-          onChange={e => setRepoPath(e.target.value)}
+          value={input}
+          onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Absolute path to a local Python repository…"
+          placeholder="https://github.com/owner/repo  or  /absolute/local/path"
           style={{
             flex: 1,
             padding: '0.5rem 0.75rem',
@@ -68,7 +108,7 @@ export default function App() {
         />
         <button
           onClick={handleAnalyze}
-          disabled={loading || !repoPath.trim()}
+          disabled={loading || !input.trim()}
           style={{
             padding: '0.5rem 1.25rem',
             background: loading ? '#21262d' : '#1f6feb',
@@ -78,9 +118,12 @@ export default function App() {
             cursor: loading ? 'not-allowed' : 'pointer',
             fontWeight: 600,
             fontSize: '14px',
+            whiteSpace: 'nowrap',
           }}
         >
-          {loading ? 'Analyzing…' : 'Analyze'}
+          {loading
+            ? (usingGitHub ? 'Cloning & analyzing…' : 'Analyzing…')
+            : 'Analyze'}
         </button>
       </div>
 
@@ -96,6 +139,7 @@ export default function App() {
             marginBottom: '1.5rem',
             fontFamily: 'monospace',
             fontSize: '13px',
+            whiteSpace: 'pre-wrap',
           }}
         >
           {error}

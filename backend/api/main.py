@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from backend.analyzers.dependency import build_dependency_edges
 from backend.analyzers.git_history import analyze_git_history
 from backend.analyzers.metrics import compute_metrics
 from backend.analyzers.repository import walk_repository
+from backend.github_loader import CloneError, InvalidGitHubURLError, cloned_repo
 from backend.models.graph import build_graph, graph_to_json
 
 app = FastAPI(title="Git DNA")
@@ -33,6 +34,21 @@ _CACHE_DIR = Path("cache")
 
 class AnalyzeRequest(BaseModel):
     repo_path: str
+
+
+class AnalyzeGitHubRequest(BaseModel):
+    github_url: str
+
+
+def _run_pipeline(repo_path: str) -> dict:
+    """Run the full Git DNA pipeline on a local *repo_path* and return the result dict."""
+    files       = walk_repository(repo_path)
+    edges       = build_dependency_edges(files, repo_path=repo_path)
+    git_history = analyze_git_history(repo_path)
+    graph       = build_graph(files, edges)
+    graph_json  = graph_to_json(graph, git_history)
+    metrics     = compute_metrics(files, edges, git_history, graph)
+    return {"graph": graph_json, "metrics": metrics}
 
 
 @app.post("/analyze")
@@ -60,16 +76,7 @@ def analyze(request: AnalyzeRequest) -> dict:
     endpoint.
     """
     repo_path = request.repo_path
-
-    # --- pipeline ---
-    files       = walk_repository(repo_path)
-    edges       = build_dependency_edges(files, repo_path=repo_path)
-    git_history = analyze_git_history(repo_path)
-    graph       = build_graph(files, edges)
-    graph_json  = graph_to_json(graph, git_history)
-    metrics     = compute_metrics(files, edges, git_history, graph)
-
-    result = {"graph": graph_json, "metrics": metrics}
+    result = _run_pipeline(repo_path)
 
     # --- cache (best-effort; never blocks the response) ---
     try:
@@ -82,3 +89,27 @@ def analyze(request: AnalyzeRequest) -> dict:
         pass  # cache write failure is non-fatal
 
     return result
+
+
+@app.post("/analyze-github")
+def analyze_github(request: AnalyzeGitHubRequest) -> dict:
+    """Clone a public GitHub repository and run the full Git DNA pipeline on it.
+
+    The repository is cloned into a temporary directory with ``git clone
+    --depth 1``, analyzed, and the temporary directory is deleted afterwards.
+    No code from the cloned repository is executed.
+
+    Raises
+    ------
+    422
+        If *github_url* is not a valid public GitHub HTTPS URL.
+    502
+        If ``git clone`` fails (repo not found, network error, timeout …).
+    """
+    try:
+        with cloned_repo(request.github_url) as local_path:
+            return _run_pipeline(local_path)
+    except InvalidGitHubURLError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CloneError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
