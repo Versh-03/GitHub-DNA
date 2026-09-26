@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.analyzers.repository import walk_repository
+from backend.analyzers.repository import walk_repository, _IGNORED_DIRS
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +16,11 @@ from backend.analyzers.repository import walk_repository
 # ---------------------------------------------------------------------------
 
 def _make_tree(tmp_path: Path) -> dict[str, Path]:
-    """Create a small synthetic directory tree and return a name → Path map."""
+    """Create a small synthetic directory tree and return a name → Path map.
+
+    Includes files inside every ignored directory so the exclusion tests
+    have real content to assert against.
+    """
     files: dict[str, Path] = {}
 
     def touch(rel: str, content: str = "") -> Path:
@@ -54,9 +58,20 @@ def _make_tree(tmp_path: Path) -> dict[str, Path]:
     touch("Makefile", "all:")
     touch("data/dump.csv", "a,b,c")
 
-    # .git directory — must be excluded
+    # Ignored directories — must all be excluded from results
     touch(".git/HEAD", "ref: refs/heads/main")
     touch(".git/config", "[core]")
+    touch(".venv/lib/site-packages/requests/__init__.py", "# venv pkg")
+    touch("venv/lib/site-packages/flask/__init__.py", "# venv pkg")
+    touch("env/Scripts/activate", "# env activate")
+    touch("node_modules/.bin/vite", "#!/usr/bin/env node")
+    touch("node_modules/react/index.js", "// react")
+    touch("__pycache__/app.cpython-313.pyc", "\x00bytecode")
+    touch("utils/__pycache__/helpers.cpython-313.pyc", "\x00bytecode")
+    touch(".pytest_cache/v/cache/lastfailed", "{}")
+    touch(".mypy_cache/3.13/builtins.json", "{}")
+    touch("dist/app-1.0.tar.gz", "binary")
+    touch("build/lib/app.py", "# built")
 
     return files
 
@@ -141,16 +156,93 @@ class TestFileTypeClassification:
         assert results["data/dump.csv"]["file_type"] == "other"
 
 
-class TestGitExclusion:
-    """The .git/ directory must never appear in results."""
+class TestIgnoredDirectories:
+    """All directories in _IGNORED_DIRS must never appear in results."""
 
-    def test_git_directory_excluded(self, tmp_path: Path):
+    def _paths(self, tmp_path: Path) -> list[str]:
         _make_tree(tmp_path)
-        results = walk_repository(str(tmp_path))
-        paths = [r["path"] for r in results]
-        assert not any(p.startswith(".git") for p in paths), (
-            f"Found .git entries: {[p for p in paths if p.startswith('.git')]}"
+        return [r["path"] for r in walk_repository(str(tmp_path))]
+
+    def test_git_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any(p.startswith(".git/") or p == ".git" for p in paths), (
+            f"Found .git entries: {[p for p in paths if '.git' in p.split('/')]}"
         )
+
+    def test_venv_dot_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any(".venv" in p.split("/") for p in paths), (
+            f"Found .venv entries: {[p for p in paths if '.venv' in p.split('/')]}"
+        )
+
+    def test_venv_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("venv" in p.split("/") for p in paths), (
+            f"Found venv entries: {[p for p in paths if 'venv' in p.split('/')]}"
+        )
+
+    def test_env_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("env" in p.split("/") for p in paths), (
+            f"Found env entries: {[p for p in paths if 'env' in p.split('/')]}"
+        )
+
+    def test_node_modules_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("node_modules" in p.split("/") for p in paths), (
+            f"Found node_modules entries: {[p for p in paths if 'node_modules' in p.split('/')]}"
+        )
+
+    def test_pycache_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("__pycache__" in p.split("/") for p in paths), (
+            f"Found __pycache__ entries: {[p for p in paths if '__pycache__' in p.split('/')]}"
+        )
+
+    def test_pytest_cache_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any(".pytest_cache" in p.split("/") for p in paths), (
+            f"Found .pytest_cache entries: {[p for p in paths if '.pytest_cache' in p.split('/')]}"
+        )
+
+    def test_mypy_cache_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any(".mypy_cache" in p.split("/") for p in paths), (
+            f"Found .mypy_cache entries: {[p for p in paths if '.mypy_cache' in p.split('/')]}"
+        )
+
+    def test_dist_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("dist" in p.split("/") for p in paths), (
+            f"Found dist entries: {[p for p in paths if 'dist' in p.split('/')]}"
+        )
+
+    def test_build_excluded(self, tmp_path: Path):
+        paths = self._paths(tmp_path)
+        assert not any("build" in p.split("/") for p in paths), (
+            f"Found build entries: {[p for p in paths if 'build' in p.split('/')]}"
+        )
+
+    def test_nested_pycache_excluded(self, tmp_path: Path):
+        """__pycache__ nested under a source dir must also be excluded."""
+        paths = self._paths(tmp_path)
+        assert "utils/__pycache__/helpers.cpython-313.pyc" not in paths
+
+    def test_ignored_dirs_set_is_complete(self, tmp_path: Path):
+        """All required names are present in _IGNORED_DIRS."""
+        required = {
+            ".git", ".venv", "venv", "env", "node_modules",
+            "__pycache__", ".pytest_cache", ".mypy_cache", "dist", "build",
+        }
+        assert required.issubset(_IGNORED_DIRS), (
+            f"Missing from _IGNORED_DIRS: {required - _IGNORED_DIRS}"
+        )
+
+    def test_real_source_files_still_present(self, tmp_path: Path):
+        """Ignoring generated dirs must not suppress regular source files."""
+        paths = self._paths(tmp_path)
+        assert "app.py" in paths
+        assert "utils/helpers.py" in paths
 
 
 class TestRelativePaths:

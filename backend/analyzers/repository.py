@@ -4,12 +4,26 @@ repository.py — file walker and classifier for a local Python repository.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 
 _DOCS_EXTENSIONS = {".md", ".rst", ".txt"}
 _CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml", ".cfg", ".ini"}
+
+# Directory names that are always skipped during the walk.
+# Checked against every path *component* so nested occurrences are also pruned.
+_IGNORED_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "dist",
+    "build",
+}
 
 
 def _classify(rel_path: Path) -> str:
@@ -55,7 +69,9 @@ def walk_repository(repo_path: str) -> list[dict]:
       - ``size_bytes`` — file size in bytes
       - ``file_type``  — one of "test", "source", "docs", "config", "other"
 
-    The ``.git/`` directory is always excluded.
+    The following directories are always excluded (at any depth):
+    .git, .venv, venv, env, node_modules, __pycache__, .pytest_cache,
+    .mypy_cache, dist, build.
     """
     root = Path(repo_path).resolve()
     results: list[dict] = []
@@ -67,8 +83,8 @@ def walk_repository(repo_path: str) -> list[dict]:
 
         rel = abs_path.relative_to(root)
 
-        # Skip anything inside .git/
-        if ".git" in rel.parts:
+        # Skip anything whose path contains an ignored directory component
+        if _IGNORED_DIRS.intersection(rel.parts):
             continue
 
         results.append(
