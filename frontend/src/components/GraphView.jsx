@@ -9,7 +9,7 @@
  *      grid below all the dagre components — never in a single long row.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import dagre from 'dagre'
 import {
   ReactFlow,
@@ -245,8 +245,45 @@ function buildFlowData(graph) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function GraphView({ graph }) {
+/**
+ * Build lookup maps from the raw graph edges for quick dep/usedBy resolution.
+ */
+function buildEdgeMaps(rawEdges) {
+  const deps   = {}  // node id → ids it imports (outgoing)
+  const usedBy = {}  // node id → ids that import it (incoming)
+  rawEdges.forEach(e => {
+    if (!deps[e.source])   deps[e.source]   = []
+    if (!usedBy[e.target]) usedBy[e.target] = []
+    deps[e.source].push(e.target)
+    usedBy[e.target].push(e.source)
+  })
+  return { deps, usedBy }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function GraphView({ graph, onNodeSelect }) {
   const { nodes, edges } = useMemo(() => buildFlowData(graph), [graph])
+
+  // Build dep maps from raw graph edges (not the flow edges which lose node data)
+  const { deps, usedBy } = useMemo(() => buildEdgeMaps(graph.edges), [graph.edges])
+
+  // Raw node data map for quick lookup on click
+  const rawNodeMap = useMemo(() => {
+    const m = {}
+    graph.nodes.forEach(n => { m[n.id] = n })
+    return m
+  }, [graph.nodes])
+
+  const handleNodeClick = useCallback((_event, flowNode) => {
+    const raw = rawNodeMap[flowNode.id]
+    if (!raw || !onNodeSelect) return
+    onNodeSelect({
+      node:   raw,
+      deps:   deps[raw.id]   || [],
+      usedBy: usedBy[raw.id] || [],
+    })
+  }, [rawNodeMap, deps, usedBy, onNodeSelect])
 
   if (nodes.length === 0) {
     return (
@@ -281,6 +318,7 @@ export default function GraphView({ graph }) {
         elementsSelectable={true}
         minZoom={0.04}
         colorMode="dark"
+        onNodeClick={handleNodeClick}
       >
         <Background color="#21262d" gap={24} size={1} />
         <Controls />
