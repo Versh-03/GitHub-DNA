@@ -1,13 +1,15 @@
 /**
  * GraphView — renders the dependency graph using @xyflow/react.
  *
- * Layout: compact force-like placement.
- *   1. Build an adjacency list from the edges.
- *   2. Run a simple iterative spring relaxation (no library needed).
- *   3. Scale the result to keep nodes well-spaced but tightly packed.
+ * Layout: dagre directed-graph layout (top → bottom).
+ *   - Connected files are placed near each other.
+ *   - Dependency direction flows top-to-bottom.
+ *   - dagre minimises edge crossings automatically.
+ *   - Isolated nodes are tucked below the main graph.
  */
 
 import { useMemo } from 'react'
+import dagre from 'dagre'
 import {
   ReactFlow,
   Background,
@@ -17,22 +19,22 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-// Node dimensions
+// Node dimensions (must match what dagre uses for spacing)
 const NODE_W = 200
 const NODE_H = 52
 
-/** Dark-theme node color per file_type — saturated but readable on dark bg */
+/** Dark-theme node fill per file_type */
 function nodeColor(type) {
   switch (type) {
-    case 'source': return '#1c3a5e'   // deep blue
-    case 'test':   return '#14412e'   // deep green
-    case 'docs':   return '#3d3000'   // amber/dark yellow
-    case 'config': return '#2e1f4f'   // dark violet
-    default:       return '#1e2329'   // near-black gray
+    case 'source': return '#1c3a5e'
+    case 'test':   return '#14412e'
+    case 'docs':   return '#3d3000'
+    case 'config': return '#2e1f4f'
+    default:       return '#1e2329'
   }
 }
 
-/** Border accent per file_type */
+/** Accent border per file_type */
 function nodeBorder(type) {
   switch (type) {
     case 'source': return '#388bfd'
@@ -43,7 +45,7 @@ function nodeBorder(type) {
   }
 }
 
-/** Minimap color (slightly brighter variant of node fill) */
+/** Minimap highlight colour per file_type */
 function minimapColor(type) {
   switch (type) {
     case 'source': return '#1f6feb'
@@ -54,114 +56,77 @@ function minimapColor(type) {
   }
 }
 
-// ── Compact spring layout ───────────────────────────────────────────────────
+// ── Dagre layout ─────────────────────────────────────────────────────────────
 
-const IDEAL_EDGE_LEN  = 260   // desired distance between connected nodes
-const REPULSION       = 18000  // repulsion constant between all node pairs
-const SPRING_K        = 0.08   // spring stiffness
-const ITERATIONS      = 120    // relaxation iterations
-const DAMPING         = 0.85   // velocity damping per step
+/**
+ * Run dagre on the raw node/edge lists and return a map of
+ * nodeId → { x, y } using the node's top-left corner so React Flow
+ * can use the values directly.
+ */
+function dagreLayout(rawNodes, rawEdges) {
+  const g = new dagre.graphlib.Graph()
 
-function springLayout(nodeIds, edges) {
-  const n = nodeIds.length
-  if (n === 0) return {}
+  g.setGraph({
+    rankdir: 'TB',    // top → bottom (dependency direction)
+    align: 'UL',      // align to upper-left within each rank
+    nodesep: 40,      // horizontal gap between nodes in the same rank
+    ranksep: 60,      // vertical gap between ranks
+    edgesep: 15,
+    marginx: 20,
+    marginy: 20,
+  })
 
-  // Initial positions: place on a circle so the layout always converges
-  const radius = Math.max(200, n * 45)
-  const pos = {}
-  nodeIds.forEach((id, i) => {
-    const angle = (2 * Math.PI * i) / n
-    pos[id] = {
-      x: radius * Math.cos(angle),
-      y: radius * Math.sin(angle),
-      vx: 0,
-      vy: 0,
+  g.setDefaultEdgeLabel(() => ({}))
+
+  rawNodes.forEach(n => {
+    g.setNode(n.id, { width: NODE_W, height: NODE_H })
+  })
+
+  rawEdges.forEach(e => {
+    // Guard: dagre crashes if source/target not in graph
+    if (g.hasNode(e.source) && g.hasNode(e.target)) {
+      g.setEdge(e.source, e.target)
     }
   })
 
-  // Build edge set for quick lookup
-  const edgePairs = edges.map(e => [e.source, e.target])
+  dagre.layout(g)
 
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    const force = {}
-    nodeIds.forEach(id => { force[id] = { fx: 0, fy: 0 } })
-
-    // Repulsion between every pair
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const a = nodeIds[i]
-        const b = nodeIds[j]
-        const dx = pos[b].x - pos[a].x
-        const dy = pos[b].y - pos[a].y
-        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-        const f = REPULSION / (dist * dist)
-        const nx = (dx / dist) * f
-        const ny = (dy / dist) * f
-        force[a].fx -= nx
-        force[a].fy -= ny
-        force[b].fx += nx
-        force[b].fy += ny
-      }
+  const positions = {}
+  rawNodes.forEach(n => {
+    const node = g.node(n.id)
+    // dagre gives the centre; React Flow wants the top-left corner
+    positions[n.id] = {
+      x: node.x - NODE_W / 2,
+      y: node.y - NODE_H / 2,
     }
-
-    // Spring attraction along edges
-    for (const [src, tgt] of edgePairs) {
-      if (!pos[src] || !pos[tgt]) continue
-      const dx = pos[tgt].x - pos[src].x
-      const dy = pos[tgt].y - pos[src].y
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-      const stretch = dist - IDEAL_EDGE_LEN
-      const f = SPRING_K * stretch
-      const nx = (dx / dist) * f
-      const ny = (dy / dist) * f
-      force[src].fx += nx
-      force[src].fy += ny
-      force[tgt].fx -= nx
-      force[tgt].fy -= ny
-    }
-
-    // Integrate
-    nodeIds.forEach(id => {
-      pos[id].vx = (pos[id].vx + force[id].fx) * DAMPING
-      pos[id].vy = (pos[id].vy + force[id].fy) * DAMPING
-      pos[id].x += pos[id].vx
-      pos[id].y += pos[id].vy
-    })
-  }
-
-  // Center around (0,0) and return plain {x,y}
-  let cx = 0, cy = 0
-  nodeIds.forEach(id => { cx += pos[id].x; cy += pos[id].y })
-  cx /= n; cy /= n
-  const result = {}
-  nodeIds.forEach(id => {
-    result[id] = { x: pos[id].x - cx, y: pos[id].y - cy }
   })
-  return result
+
+  return positions
 }
 
 // ── Main builder ─────────────────────────────────────────────────────────────
 
-/** Convert the raw graph payload from /analyze into React Flow node/edge arrays */
 function buildFlowData(graph) {
-  const nodeIds = graph.nodes.map(n => n.id)
-  const positions = springLayout(nodeIds, graph.edges)
-
-  // Build type lookup
-  const typeMap = {}
-  graph.nodes.forEach(n => { typeMap[n.id] = n.type })
+  const positions = dagreLayout(graph.nodes, graph.edges)
 
   const nodes = graph.nodes.map(n => {
     const label = n.id.split('/').pop()
-    const pos = positions[n.id] || { x: 0, y: 0 }
-    const type = n.type
+    const pos   = positions[n.id] || { x: 0, y: 0 }
+    const type  = n.type
     return {
       id: n.id,
       position: { x: pos.x, y: pos.y },
       data: {
         label: (
           <div style={{ fontSize: '11px', lineHeight: 1.4 }}>
-            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '176px', color: '#e6edf3' }}>
+            <div style={{
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: '176px',
+              color: '#e6edf3',
+            }}>
               {label}
             </div>
             <div style={{ color: '#7d8590' }}>
@@ -182,35 +147,51 @@ function buildFlowData(graph) {
     }
   })
 
-  const edges = graph.edges.map((e, index) => ({
-    id: `e-${index}`,
+  const edges = graph.edges.map((e, i) => ({
+    id: `e-${i}`,
     source: e.source,
     target: e.target,
-    markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#484f58' },
-    style: { stroke: '#484f58', strokeWidth: 1.5 },
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#6e7681' },
+    style: { stroke: '#6e7681', strokeWidth: 1.5 },
   }))
 
-  return { nodes, edges, typeMap }
+  return { nodes, edges }
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function GraphView({ graph }) {
-  const { nodes, edges, typeMap } = useMemo(() => buildFlowData(graph), [graph])
+  const { nodes, edges } = useMemo(() => buildFlowData(graph), [graph])
 
   if (nodes.length === 0) {
     return (
-      <div style={{ border: '1px solid #30363d', borderRadius: '8px', padding: '2rem', color: '#7d8590', textAlign: 'center', background: '#161b22' }}>
+      <div style={{
+        border: '1px solid #30363d',
+        borderRadius: '8px',
+        padding: '2rem',
+        color: '#7d8590',
+        textAlign: 'center',
+        background: '#161b22',
+      }}>
         No nodes in graph.
       </div>
     )
   }
 
   return (
-    <div style={{ border: '1px solid #30363d', borderRadius: '8px', overflow: 'hidden', height: 600, background: '#0d1117' }}>
+    <div style={{
+      border: '1px solid #30363d',
+      borderRadius: '8px',
+      overflow: 'hidden',
+      height: 620,
+      background: '#0d1117',
+    }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         fitView
-        fitViewOptions={{ padding: 0.12 }}
+        fitViewOptions={{ padding: 0.1 }}
         nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={true}
