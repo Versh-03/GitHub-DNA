@@ -7,9 +7,15 @@
  *      stacked vertically with generous spacing.
  *   3. Truly isolated nodes (no edges at all) are placed in a compact
  *      grid below all the dagre components — never in a single long row.
+
+*
+ * File-detail panel:
+ *   Clicking a node opens a floating panel anchored near the node inside
+ *   the graph container. It is dismissed by the close button or by
+ *   clicking another node.
  */
 
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useState } from 'react'
 import dagre from 'dagre'
 import {
   ReactFlow,
@@ -17,20 +23,26 @@ import {
   Controls,
   MiniMap,
   MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import FileDetailPanel from './FileDetailPanel.jsx'
 
 // ── Sizing constants ──────────────────────────────────────────────────────────
-// These are used both for the React Flow node style AND passed to dagre so its
-// spacing calculations match the actual rendered dimensions exactly.
-const NODE_W    = 240   // rendered node width  (up from 200)
-const NODE_H    = 80    // rendered node height (up from 70; accounts for padding + wrapper)
-const NODESEP   = 120   // clear px gap between sibling nodes in the same rank
-const RANKSEP   = 140   // clear px gap between ranks (rows)
-const GRID_COLS = 5     // columns in the isolated-node grid
-const GRID_GAP  = 30    // px gap between cells in the isolate grid
+const NODE_W    = 240
+const NODE_H    = 80
+const NODESEP   = 120
+const RANKSEP   = 140
+const GRID_COLS = 5
+const GRID_GAP  = 30
 
-// ── Color helpers (dark theme, unchanged) ────────────────────────────────────
+// Panel dimensions — used only for clamping so it stays within the container
+const PANEL_W   = 300
+const PANEL_H   = 480  // generous estimate; actual height varies
+const CONTAINER_H = 680
+
+// ── Color helpers (dark theme) ────────────────────────────────────────────────
 
 function nodeColor(type) {
   switch (type) {
@@ -72,9 +84,7 @@ function findComponents(nodeIds, edges) {
     if (parent[x] !== x) parent[x] = find(parent[x])
     return parent[x]
   }
-  function union(a, b) {
-    parent[find(a)] = find(b)
-  }
+  function union(a, b) { parent[find(a)] = find(b) }
 
   edges.forEach(e => {
     if (parent[e.source] !== undefined && parent[e.target] !== undefined) {
@@ -82,7 +92,6 @@ function findComponents(nodeIds, edges) {
     }
   })
 
-  // Group by root
   const groups = {}
   nodeIds.forEach(id => {
     const root = find(id)
@@ -95,10 +104,6 @@ function findComponents(nodeIds, edges) {
 
 // ── Dagre layout for a single component ──────────────────────────────────────
 
-/**
- * Run dagre on one component's nodes+edges and return positions
- * as top-left corners (React Flow convention), offset by (offsetX, offsetY).
- */
 function layoutComponent(componentNodeIds, allNodes, allEdges, offsetX, offsetY) {
   const nodeSet = new Set(componentNodeIds)
 
@@ -134,18 +139,16 @@ function layoutComponent(componentNodeIds, allNodes, allEdges, offsetX, offsetY)
     }
   })
 
-  // Return positions + the bounding-box height of this component
   const graphInfo = g.graph()
   return { positions, height: graphInfo.height + 2 * 40 }
 }
 
-// ── Full layout: dagre components + isolate grid ──────────────────────────────
+// ── Full layout ───────────────────────────────────────────────────────────────
 
 function buildLayout(rawNodes, rawEdges) {
-  const nodeIds = rawNodes.map(n => n.id)
+  const nodeIds    = rawNodes.map(n => n.id)
   const components = findComponents(nodeIds, rawEdges)
 
-  // Separate components that have real edges from true singletons
   const edgeNodeSet = new Set()
   rawEdges.forEach(e => { edgeNodeSet.add(e.source); edgeNodeSet.add(e.target) })
 
@@ -159,29 +162,21 @@ function buildLayout(rawNodes, rawEdges) {
   const allPositions = {}
   let currentY = 0
 
-  // ── 1. Lay out each connected component with dagre, stacked top-to-bottom ──
   connectedComponents.forEach(comp => {
-    const { positions, height } = layoutComponent(
-      comp, rawNodes, rawEdges, 0, currentY
-    )
+    const { positions, height } = layoutComponent(comp, rawNodes, rawEdges, 0, currentY)
     Object.assign(allPositions, positions)
-    currentY += height + RANKSEP   // gap between consecutive components
+    currentY += height + RANKSEP
   })
 
-  // ── 2. Place isolated nodes in a grid below the dagre area ─────────────────
-  const cellW = NODE_W + GRID_GAP
-  const cellH = NODE_H + GRID_GAP
-  // Add extra breathing room before the grid starts
+  const cellW      = NODE_W + GRID_GAP
+  const cellH      = NODE_H + GRID_GAP
   const gridStartY = currentY + (isolatedIds.length > 0 && connectedComponents.length > 0
-    ? RANKSEP
-    : 0)
+    ? RANKSEP : 0)
 
   isolatedIds.forEach((id, i) => {
-    const col = i % GRID_COLS
-    const row = Math.floor(i / GRID_COLS)
     allPositions[id] = {
-      x: col * cellW,
-      y: gridStartY + row * cellH,
+      x: (i % GRID_COLS) * cellW,
+      y: gridStartY + Math.floor(i / GRID_COLS) * cellH,
     }
   })
 
@@ -243,14 +238,11 @@ function buildFlowData(graph) {
   return { nodes, edges }
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Edge maps ─────────────────────────────────────────────────────────────────
 
-/**
- * Build lookup maps from the raw graph edges for quick dep/usedBy resolution.
- */
 function buildEdgeMaps(rawEdges) {
-  const deps   = {}  // node id → ids it imports (outgoing)
-  const usedBy = {}  // node id → ids that import it (incoming)
+  const deps   = {}
+  const usedBy = {}
   rawEdges.forEach(e => {
     if (!deps[e.source])   deps[e.source]   = []
     if (!usedBy[e.target]) usedBy[e.target] = []
@@ -260,32 +252,112 @@ function buildEdgeMaps(rawEdges) {
   return { deps, usedBy }
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Inner component (needs useReactFlow, so must live inside ReactFlowProvider) ──
 
-export default function GraphView({ graph, onNodeSelect }) {
+function GraphInner({ graph }) {
   const { nodes, edges } = useMemo(() => buildFlowData(graph), [graph])
-
-  // Build dep maps from raw graph edges (not the flow edges which lose node data)
   const { deps, usedBy } = useMemo(() => buildEdgeMaps(graph.edges), [graph.edges])
-
-  // Raw node data map for quick lookup on click
-  const rawNodeMap = useMemo(() => {
+  const rawNodeMap       = useMemo(() => {
     const m = {}
     graph.nodes.forEach(n => { m[n.id] = n })
     return m
   }, [graph.nodes])
 
+  const { getViewport } = useReactFlow()
+
+  // { detail: {node,deps,usedBy}, panelPos: {top,left} } | null
+  const [selection, setSelection] = useState(null)
+
   const handleNodeClick = useCallback((_event, flowNode) => {
     const raw = rawNodeMap[flowNode.id]
-    if (!raw || !onNodeSelect) return
-    onNodeSelect({
-      node:   raw,
-      deps:   deps[raw.id]   || [],
-      usedBy: usedBy[raw.id] || [],
-    })
-  }, [rawNodeMap, deps, usedBy, onNodeSelect])
+    if (!raw) return
 
-  if (nodes.length === 0) {
+    // Convert node's graph-space top-left corner → pixel position inside
+    // the container using the current viewport (zoom + pan).
+    const vp   = getViewport()
+    const zoom = vp.zoom
+
+    // flowNode.position is the top-left of the node in graph space
+    const nodeScreenX = flowNode.position.x * zoom + vp.x
+    const nodeScreenY = flowNode.position.y * zoom + vp.y
+
+    // Prefer placing the panel to the right of the node; fall back to left
+    const offsetX = 16
+    const nodeRight = nodeScreenX + NODE_W * zoom + offsetX
+    const left = nodeRight + PANEL_W > window.innerWidth
+      ? Math.max(4, nodeScreenX - PANEL_W - offsetX)
+      : nodeRight
+
+    // Place panel just below the node top, clamped within the container
+    const top = Math.min(
+      Math.max(4, nodeScreenY),
+      CONTAINER_H - PANEL_H - 4,
+    )
+
+    setSelection({
+      detail: {
+        node:   raw,
+        deps:   deps[raw.id]   || [],
+        usedBy: usedBy[raw.id] || [],
+      },
+      panelPos: { top, left },
+    })
+  }, [rawNodeMap, deps, usedBy, getViewport])
+
+  const handlePaneClick = useCallback(() => {
+    setSelection(null)
+  }, [])
+
+  return (
+    <>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        fitView
+        fitViewOptions={{ padding: 0.08 }}
+        nodesDraggable={true}
+        nodesConnectable={false}
+        elementsSelectable={true}
+        minZoom={0.04}
+        colorMode="dark"
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
+      >
+        <Background color="#21262d" gap={24} size={1} />
+        <Controls />
+        <MiniMap
+          nodeColor={n => minimapColor(n.data?.type || '')}
+          maskColor="rgba(13,17,23,0.55)"
+          style={{ background: '#161b22' }}
+        />
+      </ReactFlow>
+
+      {selection && (
+        <div style={{
+          position: 'absolute',
+          top:      selection.panelPos.top,
+          left:     selection.panelPos.left,
+          width:    PANEL_W,
+          zIndex:   10,
+          // Prevent the panel from being wider than the container
+          maxWidth: 'calc(100% - 8px)',
+        }}>
+          <FileDetailPanel
+            node={selection.detail.node}
+            deps={selection.detail.deps}
+            usedBy={selection.detail.usedBy}
+            onClose={() => setSelection(null)}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Public component ──────────────────────────────────────────────────────────
+
+export default function GraphView({ graph }) {
+  if (graph.nodes.length === 0) {
     return (
       <div style={{
         border: '1px solid #30363d',
@@ -302,32 +374,16 @@ export default function GraphView({ graph, onNodeSelect }) {
 
   return (
     <div style={{
+      position: 'relative',       // anchor for the absolute-positioned panel
       border: '1px solid #30363d',
       borderRadius: '8px',
       overflow: 'hidden',
-      height: 680,
+      height: CONTAINER_H,
       background: '#0d1117',
     }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        fitView
-        fitViewOptions={{ padding: 0.08 }}
-        nodesDraggable={true}
-        nodesConnectable={false}
-        elementsSelectable={true}
-        minZoom={0.04}
-        colorMode="dark"
-        onNodeClick={handleNodeClick}
-      >
-        <Background color="#21262d" gap={24} size={1} />
-        <Controls />
-        <MiniMap
-          nodeColor={n => minimapColor(n.data?.type || '')}
-          maskColor="rgba(13,17,23,0.55)"
-          style={{ background: '#161b22' }}
-        />
-      </ReactFlow>
+      <ReactFlowProvider>
+        <GraphInner graph={graph} />
+      </ReactFlowProvider>
     </div>
   )
 }

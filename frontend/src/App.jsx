@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import StatsPanel from './components/StatsPanel.jsx'
 import GraphView from './components/GraphView.jsx'
-import FileDetailPanel from './components/FileDetailPanel.jsx'
 
 const API_URL = 'http://localhost:8000/analyze'
 
@@ -10,14 +9,12 @@ export default function App() {
   const [result, setResult] = useState(null)   // { graph, metrics }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [selectedNode, setSelectedNode] = useState(null)  // { node, deps, usedBy }
 
   async function handleAnalyze() {
     if (!repoPath.trim()) return
     setLoading(true)
     setError(null)
     setResult(null)
-    setSelectedNode(null)
 
     try {
       const res = await fetch(API_URL, {
@@ -109,20 +106,7 @@ export default function App() {
       {result && (
         <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '1.5rem', alignItems: 'start' }}>
           <StatsPanel metrics={result.metrics} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <GraphView
-              graph={result.graph}
-              onNodeSelect={setSelectedNode}
-            />
-            {selectedNode && (
-              <FileDetailPanel
-                node={selectedNode.node}
-                deps={selectedNode.deps}
-                usedBy={selectedNode.usedBy}
-                onClose={() => setSelectedNode(null)}
-              />
-            )}
-          </div>
+          <GraphView graph={result.graph} />
         </div>
       )}
     </div>
