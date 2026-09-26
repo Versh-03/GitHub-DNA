@@ -49,9 +49,15 @@ class TestExtractImports:
         assert extract_imports(path) == ["os"]
 
     def test_from_import(self, tmp_path: Path):
-        """``from pathlib import Path`` → ['pathlib'] (single component, no top appended)."""
+        """``from pathlib import Path`` → ['pathlib.Path', 'pathlib'].
+
+        The submodule candidate 'pathlib.Path' is emitted first (so the
+        resolver can try pathlib/Path.py), then the module itself 'pathlib'.
+        """
         path = _write(tmp_path, "a.py", "from pathlib import Path\n")
-        assert extract_imports(path) == ["pathlib"]
+        result = extract_imports(path)
+        assert "pathlib.Path" in result
+        assert "pathlib" in result
 
     def test_from_dotted_import_returns_full_and_top(self, tmp_path: Path):
         """``from os.path import join`` → both 'os.path' and 'os' are returned."""
@@ -139,8 +145,8 @@ class TestBuildDependencyEdges:
         edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
         assert len(edges) <= 1
 
-    def test_test_files_are_not_analysed_as_importers(self, tmp_path: Path):
-        """Only file_type=='source' files are walked; test files are skipped."""
+    def test_test_files_are_analysed_as_importers(self, tmp_path: Path):
+        """file_type=='test' files are now walked; edges to source modules are emitted."""
         _write(tmp_path, "utils.py", "x = 1\n")
         _write(tmp_path, "test_app.py", "import utils\n")
         file_list = [
@@ -148,7 +154,9 @@ class TestBuildDependencyEdges:
             {"path": "utils.py",    "file_type": "source", "size_bytes": 6},
         ]
         edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
-        assert edges == []
+        assert len(edges) == 1
+        assert edges[0]["source"] == "test_app.py"
+        assert edges[0]["target"] == "utils.py"
 
     def test_duplicate_import_produces_single_edge(self, tmp_path: Path):
         """Importing the same module twice only produces one edge."""
@@ -260,3 +268,134 @@ class TestBuildDependencyEdges:
             {"path": "setup.cfg",      "file_type": "config", "size_bytes": 20},
         ]
         assert build_dependency_edges(file_list) == []
+
+
+# ---------------------------------------------------------------------------
+# Test file dependency edges
+# ---------------------------------------------------------------------------
+
+class TestTestFileEdges:
+    """Test files (file_type=='test') must produce edges to the modules they import."""
+
+    def test_test_file_edge_to_source_module(self, tmp_path: Path):
+        """test_foo.py importing utils produces an edge test_foo.py → utils.py."""
+        _write(tmp_path, "utils.py", "x = 1\n")
+        _write(tmp_path, "test_foo.py", "import utils\n")
+        file_list = [
+            {"path": "test_foo.py", "file_type": "test",   "size_bytes": 14},
+            {"path": "utils.py",    "file_type": "source", "size_bytes": 6},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0] == {"source": "test_foo.py", "target": "utils.py", "type": "import"}
+
+    def test_test_file_from_dotted_import(self, tmp_path: Path):
+        """``from backend.analyzers.repository import walk_repository`` in a test file
+        produces an edge to backend/analyzers/repository.py."""
+        _write(tmp_path, "tests/test_repository.py",
+               "from backend.analyzers.repository import walk_repository\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        file_list = [
+            {"path": "tests/test_repository.py",        "file_type": "test",   "size_bytes": 56},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 28},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["source"] == "tests/test_repository.py"
+        assert edges[0]["target"] == "backend/analyzers/repository.py"
+
+    def test_test_file_multiple_imports(self, tmp_path: Path):
+        """A test file importing several source modules produces one edge per module."""
+        _write(tmp_path, "tests/test_all.py",
+               "from backend.analyzers.repository import walk_repository\n"
+               "from backend.analyzers.dependency import build_dependency_edges\n"
+               "import pytest\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        _write(tmp_path, "backend/analyzers/dependency.py", "def build_dependency_edges(): pass\n")
+        file_list = [
+            {"path": "tests/test_all.py",               "file_type": "test",   "size_bytes": 100},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 28},
+            {"path": "backend/analyzers/dependency.py", "file_type": "source", "size_bytes": 35},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        targets = {e["target"] for e in edges}
+        assert "backend/analyzers/repository.py" in targets
+        assert "backend/analyzers/dependency.py" in targets
+        # pytest is external — must not produce an edge
+        assert all("pytest" not in e["target"] for e in edges)
+        assert len(edges) == 2
+
+    def test_test_file_external_imports_excluded(self, tmp_path: Path):
+        """External imports (pytest, pathlib) in test files must not produce edges."""
+        _write(tmp_path, "test_foo.py",
+               "import pytest\nfrom pathlib import Path\nimport os\n")
+        file_list = [
+            {"path": "test_foo.py", "file_type": "test", "size_bytes": 50},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert edges == []
+
+
+# ---------------------------------------------------------------------------
+# from-package-import-submodule resolution
+# ---------------------------------------------------------------------------
+
+class TestFromPackageImportSubmodule:
+    """``from pkg import submodule`` must resolve to pkg/submodule.py."""
+
+    def test_from_package_import_submodule(self, tmp_path: Path):
+        """``from backend.analyzers import repository`` → backend/analyzers/repository.py."""
+        _write(tmp_path, "app.py", "from backend.analyzers import repository\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        file_list = [
+            {"path": "app.py",                          "file_type": "source", "size_bytes": 40},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 28},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["source"] == "app.py"
+        assert edges[0]["target"] == "backend/analyzers/repository.py"
+
+    def test_from_package_import_multiple_submodules(self, tmp_path: Path):
+        """``from backend.analyzers import repository, dependency`` resolves both."""
+        _write(tmp_path, "app.py",
+               "from backend.analyzers import repository, dependency\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "x = 1\n")
+        _write(tmp_path, "backend/analyzers/dependency.py", "y = 2\n")
+        file_list = [
+            {"path": "app.py",                          "file_type": "source", "size_bytes": 50},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 6},
+            {"path": "backend/analyzers/dependency.py", "file_type": "source", "size_bytes": 6},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        targets = {e["target"] for e in edges}
+        assert "backend/analyzers/repository.py" in targets
+        assert "backend/analyzers/dependency.py" in targets
+        assert len(edges) == 2
+
+    def test_from_top_import_submodule(self, tmp_path: Path):
+        """``from backend import analyzers`` → backend/analyzers.py (if it exists)."""
+        _write(tmp_path, "app.py", "from backend import analyzers\n")
+        _write(tmp_path, "backend/analyzers.py", "x = 1\n")
+        file_list = [
+            {"path": "app.py",               "file_type": "source", "size_bytes": 30},
+            {"path": "backend/analyzers.py", "file_type": "source", "size_bytes": 6},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["target"] == "backend/analyzers.py"
+
+    def test_multi_level_import_in_test_file(self, tmp_path: Path):
+        """Multi-level from-import in a test file resolves all the way down."""
+        _write(tmp_path, "tests/test_repository.py",
+               "from backend.analyzers import repository\n"
+               "import pytest\n")
+        _write(tmp_path, "backend/analyzers/repository.py", "def walk_repository(): pass\n")
+        file_list = [
+            {"path": "tests/test_repository.py",        "file_type": "test",   "size_bytes": 60},
+            {"path": "backend/analyzers/repository.py", "file_type": "source", "size_bytes": 28},
+        ]
+        edges = build_dependency_edges(file_list, repo_path=str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["source"] == "tests/test_repository.py"
+        assert edges[0]["target"] == "backend/analyzers/repository.py"

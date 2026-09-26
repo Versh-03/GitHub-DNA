@@ -10,13 +10,16 @@ from pathlib import Path
 
 
 def extract_imports(file_path: str) -> list[str]:
-    """Parse *file_path* with ``ast`` and return all imported module strings.
+    """Parse *file_path* with ``ast`` and return candidate module path strings.
 
-    Returns both the full dotted name and the top-level name for each import
-    so the edge resolver can try both forms:
+    Each candidate is a dotted module name that can be converted to a
+    ``a/b/c.py`` path for intra-repo edge resolution.  Multiple candidates
+    are returned per import statement so the caller can try all of them:
 
-    * ``import a.b.c``       → ["a.b.c", "a"]
-    * ``from a.b import c``  → ["a.b",   "a"]
+    * ``import a.b.c``            → ["a.b.c", "a"]
+    * ``from a.b import c``       → ["a.b.c", "a.b", "a"]
+      ↑ "a.b.c" lets the resolver find ``a/b/c.py`` when *c* is a submodule
+    * ``from a.b import c, d``    → ["a.b.c", "a.b.d", "a.b", "a"]
 
     Duplicates within the same file are preserved (deduplication happens in
     the caller).  Returns an empty list and emits a ``SyntaxWarning`` on
@@ -44,37 +47,51 @@ def extract_imports(file_path: str) -> list[str]:
                     names.append(top)
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                full = node.module                # e.g. "a.b"
-                top  = full.split(".")[0]         # e.g. "a"
-                names.append(full)
-                if top != full:
+                mod  = node.module                # e.g. "a.b"
+                top  = mod.split(".")[0]          # e.g. "a"
+                # Emit "mod.name" for each imported name so that
+                # "from a.b import c" also tries a/b/c.py (submodule form)
+                for alias in node.names:
+                    if alias.name != "*":
+                        names.append(f"{mod}.{alias.name}")
+                names.append(mod)
+                if top != mod:
                     names.append(top)
             # "from . import x" (relative, no module) — skip
     return names
 
 
-def build_dependency_edges(file_list: list[dict], repo_path: str = ".") -> list[dict]:
-    """Return a list of intra-repo dependency edges for all source files.
+# File types that are analysed as importers when building dependency edges.
+_IMPORTER_TYPES = {"source", "test"}
 
-    Only files with ``file_type == "source"`` are analysed as importers.
+
+def build_dependency_edges(file_list: list[dict], repo_path: str = ".") -> list[dict]:
+    """Return a list of intra-repo dependency edges for source and test files.
+
+    Files with ``file_type`` in ``{"source", "test"}`` are analysed as
+    importers so that test files such as ``test_repository.py`` produce edges
+    to the modules they import.
+
     Each file's ``path`` entry is relative to *repo_path*; the function
     resolves it to an absolute path before calling ``extract_imports``.
 
-    For each imported module name the function checks whether a matching
-    file exists anywhere in *file_list* by converting the dotted module
-    path to a file path (``a.b.c`` → ``a/b/c.py``).  Both the full dotted
-    path and the top-level name are tried, so imports such as::
+    For each imported name the function tries every candidate path produced
+    by ``extract_imports`` (see its docstring).  This covers all three forms:
 
-        from backend.analyzers.repository import walk_repository
+    * ``import backend.analyzers.repository``
+      → tries ``backend/analyzers/repository.py``          ✓
+    * ``from backend.analyzers.repository import walk_repository``
+      → tries ``backend/analyzers/repository/walk_repository.py`` (miss),
+        then ``backend/analyzers/repository.py``            ✓
+    * ``from backend.analyzers import repository``
+      → tries ``backend/analyzers/repository.py``          ✓
 
-    correctly resolve to ``backend/analyzers/repository.py``.
+    External imports (``os``, ``fastapi``, ``pytest``, etc.) that don't
+    resolve to a file in the list are silently skipped.
 
     Each edge has the shape::
 
         {"source": <importer_path>, "target": <imported_path>, "type": "import"}
-
-    External imports (``os``, ``fastapi``, etc.) that don't resolve to a
-    file in the list are silently skipped.
     """
     root = Path(repo_path).resolve()
 
@@ -84,7 +101,7 @@ def build_dependency_edges(file_list: list[dict], repo_path: str = ".") -> list[
     edges: list[dict] = []
 
     for file_dict in file_list:
-        if file_dict.get("file_type") != "source":
+        if file_dict.get("file_type") not in _IMPORTER_TYPES:
             continue
 
         abs_path = str(root / file_dict["path"])
