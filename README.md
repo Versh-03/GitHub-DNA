@@ -6,7 +6,7 @@
 
 ## The Problem
 
-Joining a new codebase is slow. Developers spend days reading files linearly trying to understand how things connect — which modules depend on which, which files change the most, and who owns what. There is no easy "map" of the code.
+Joining a new codebase is slow. Developers can spend significant time reading files and tracing relationships manually, how things connect; which modules depend on which, which files change the most, and who owns what. There is no easy "map" of the code.
 
 ---
 
@@ -119,7 +119,7 @@ GitHub-DNA/
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/<your-username>/GitHub-DNA.git
+git clone https://github.com/Versh-03/GitHub-DNA.git
 cd GitHub-DNA
 
 # 2. Install Python dependencies
@@ -177,27 +177,13 @@ Example response (abbreviated):
     "source_files": 8,
     "test_files": 4,
     "total_commits": 42,
-    "contributors": 1,
+    "contributors_count": 1,
     "total_edges": 11
   }
 }
 ```
 
 ---
-
-## Current Project Status
-
-This is a student project in active development.
-
-| Milestone | Status |
-|---|---|
-| Project scaffold + file walker | ✅ Complete |
-| AST dependency analyser | ✅ Complete |
-| Git history analyser | ✅ Complete |
-| Graph model + metrics | ✅ Complete |
-| React frontend (end-to-end MVP) | ✅ Complete |
-| Sample repository + UI polish | ⏳ In progress |
-| Evidence collection + submission | ⏳ Pending |
 
 **Limitations (current scope):**
 - Only analyses Python repositories (JavaScript / other languages not yet supported)
