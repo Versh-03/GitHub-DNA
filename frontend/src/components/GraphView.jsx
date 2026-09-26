@@ -19,9 +19,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-// Node dimensions (must match what dagre uses for spacing)
+// Node dimensions passed to dagre — must reflect the actual rendered size.
+// NODE_W: matches the `width` set on the node style (200 px).
+// NODE_H: actual rendered height = two text lines (~31 px) + top/bottom padding
+//         (12 px) + React Flow's inner node wrapper (~12 px) ≈ 55 px; use 70
+//         to give dagre a safe upper bound so it never under-estimates spacing.
 const NODE_W = 200
-const NODE_H = 52
+const NODE_H = 70
 
 /** Dark-theme node fill per file_type */
 function nodeColor(type) {
@@ -67,13 +71,12 @@ function dagreLayout(rawNodes, rawEdges) {
   const g = new dagre.graphlib.Graph()
 
   g.setGraph({
-    rankdir: 'TB',    // top → bottom (dependency direction)
-    align: 'UL',      // align to upper-left within each rank
-    nodesep: 40,      // horizontal gap between nodes in the same rank
-    ranksep: 60,      // vertical gap between ranks
-    edgesep: 15,
-    marginx: 20,
-    marginy: 20,
+    rankdir: 'TB',   // top → bottom (dependency direction)
+    nodesep: 80,     // px of clear space between node edges in the same rank
+    ranksep: 100,    // px of clear space between ranks (rows)
+    edgesep: 20,
+    marginx: 30,
+    marginy: 30,
   })
 
   g.setDefaultEdgeLabel(() => ({}))
@@ -152,8 +155,8 @@ function buildFlowData(graph) {
     source: e.source,
     target: e.target,
     type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#6e7681' },
-    style: { stroke: '#6e7681', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#58a6ff' },
+    style: { stroke: '#58a6ff', strokeWidth: 2.5 },
   }))
 
   return { nodes, edges }
