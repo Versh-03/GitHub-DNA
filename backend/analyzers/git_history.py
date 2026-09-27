@@ -30,6 +30,11 @@ def analyze_git_history(repo_path: str) -> dict:
     ``top_changed_files`` is the top 10 files sorted by ``commit_count``
     descending.
 
+    Implementation note: this uses a single bulk ``git log --name-only``
+    call rather than iterating commits with GitPython's ``commit.stats``,
+    which internally spawns one subprocess per commit and is prohibitively
+    slow on repositories with large histories (thousands of commits).
+
     On error (not a git repo, no commits, etc.) returns the empty structure
     above with an added ``"error"`` key describing the problem.
     """
@@ -40,52 +45,39 @@ def analyze_git_history(repo_path: str) -> dict:
     except git.NoSuchPathError:
         return {**_EMPTY_RESULT, "error": f"Path does not exist: {repo_path}"}
 
-    total_commits = 0
     contributors: set[str] = set()
     file_commit_counts: dict[str, int] = {}
-    stats_errors = 0
+    total_commits = 0
 
     try:
-        for commit in repo.iter_commits():
-            total_commits += 1
-
-            if commit.author.email:
-                contributors.add(commit.author.email)
-
-            # A single problematic commit should not erase the
-            # history information we already collected.
-            try:
-                for file_path in commit.stats.files:
-                    file_commit_counts[file_path] = (
-                        file_commit_counts.get(file_path, 0) + 1
-                    )
-            except git.GitCommandError:
-                stats_errors += 1
-                continue
-
+        # Single bulk call: one line per commit (author email), then the
+        # names of the files that commit touched. This avoids GitPython's
+        # per-commit .stats subprocess overhead entirely.
+        log_output = repo.git.log(
+            "--name-only",
+            "--pretty=format:__COMMIT__%ae",
+        )
     except git.GitCommandError as exc:
-        return {
-            **_EMPTY_RESULT,
-            "error": f"Unable to read git history: {exc}",
-        }
+        return {**_EMPTY_RESULT, "error": f"Unable to read git history: {exc}"}
+
+    for line in log_output.splitlines():
+        if line.startswith("__COMMIT__"):
+            total_commits += 1
+            author = line[len("__COMMIT__"):].strip()
+            if author:
+                contributors.add(author)
+        elif line.strip():
+            file_commit_counts[line] = file_commit_counts.get(line, 0) + 1
 
     top_changed_files = sorted(
-        [
-            {"path": path, "commit_count": count}
-            for path, count in file_commit_counts.items()
-        ],
+        [{"path": p, "commit_count": c} for p, c in file_commit_counts.items()],
         key=lambda x: x["commit_count"],
         reverse=True,
     )[:10]
 
-    result = {
+    return {
         "total_commits": total_commits,
         "contributor_count": len(contributors),
         "file_commit_counts": file_commit_counts,
         "top_changed_files": top_changed_files,
     }
-
-    if stats_errors:
-        result["stats_errors"] = stats_errors
-
-    return result

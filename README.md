@@ -1,18 +1,29 @@
-# GitHub DNA
+# 🧬 GitHub-DNA
 
-> Visualize a Python codebase as an interactive dependency graph — instantly understand structure, hotspots, and contributor history.
+> Google Maps for understanding a codebase.
 
 ---
 
 ## The Problem
 
-Joining a new codebase is slow. Developers can spend significant time reading files and tracing relationships manually, how things connect; which modules depend on which, which files change the most, which files are connected, and which contributors have worked on the repository.. There is no easy "map" of the code.
+Understanding an unfamiliar codebase can take significant time. Developers
+often need to manually explore directories, inspect source files, trace
+dependencies, review Git history, and determine which parts of the repository
+are most connected or frequently changed.
+
+There is no simple visual "map" that provides this context at a glance.
 
 ---
 
-## What Git DNA Does
+## What GitHub-DNA Does
 
-Git DNA takes a local Python repository path, runs a four-stage analysis pipeline (file walk → AST dependency parse → Git history extract → graph build), and returns an interactive web-based architecture map. Each node is a file; each edge is an import relationship. Node colour encodes file type, and each node shows the file's commit frequency at a glance.
+GitHub-DNA analyzes a Python Git repository and turns it into an interactive
+visual map of its structure, dependencies, and development history.
+
+A repository can be provided either as a local filesystem path or as a
+public GitHub repository URL. GitHub-DNA analyzes the repository and presents
+its files, relationships, repository metrics, and Git history through an
+interactive web interface.
 
 ---
 
@@ -21,76 +32,85 @@ Git DNA takes a local Python repository path, runs a four-stage analysis pipelin
 | Feature | Detail |
 |---|---|
 | **File classification** | Detects source, test, docs, and config files automatically |
-| **Dependency graph** | Parses Python `import` / `from … import` statements via the standard-library `ast` module — no external parser needed |
+| **Dependency graph** | Parses Python `import` / `from … import` statements via the standard-library `ast` module |
 | **Git history overlay** | Counts commits per file and unique contributors using GitPython |
-| **Repository metrics** | Totals, top-connected files, top-changed files, largest files, edge count |
+| **Repository metrics** | Totals, top-connected files, top-changed files, largest files, edge count, and contributor information |
 | **Interactive visualisation** | React Flow graph with pan, zoom, minimap, and fit-to-view; click any node for a details panel |
 | **Smart layout** | Connected components use Dagre hierarchical layout; isolated nodes fall back to a compact grid |
-| **Response caching** | Results saved to `cache/` as JSON (keyed by SHA-256 of the repo path) |
-| **Local-first** | No cloud, no authentication, no database — runs fully offline |
+| **Local + GitHub input** | Analyze a local repository path or a public GitHub repository URL |
+| **Local-first architecture** | No authentication, database, or cloud infrastructure is required for local analysis |
 
 ---
 
 ## How It Works
 
-```
-User inputs repo path
+```text
+User provides local path or GitHub URL
         │
-        ▼
-┌──────────────────┐
-│  Repository Walk │  repository.py — scan files, classify type, collect size
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Dependency Parse │  dependency.py — Python AST → intra-repo import edges
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  Git History     │  git_history.py — GitPython → commit count per file
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│  Graph + Metrics Build   │  graph.py (NetworkX) + metrics.py → JSON
-└────────┬─────────────────┘
-         │
-         ▼
-  POST /analyze → React frontend renders graph + stats panel
+        ├── Local path ───────────────┐
+        │                             │
+        └── GitHub URL → Clone repo ──┤
+                                      ▼
+                           ┌──────────────────┐
+                           │ Repository Walk  │
+                           │ Scan + classify  │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │ Dependency Parse │
+                           │ Python AST        │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │   Git History    │
+                           │ GitPython        │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────────┐
+                           │ Graph + Metrics Build│
+                           │ NetworkX             │
+                           └──────────┬───────────┘
+                                      │
+                                      ▼
+                              React visualization
 ```
 
 The API returns a single JSON object containing:
-- **`graph.nodes`** — file path, type, size, commit count
-- **`graph.edges`** — source → target import relationships
-- **`metrics`** — aggregated repository statistics
+
+* **`graph.nodes`** — file path, type, size, commit count
+* **`graph.edges`** — source → target import relationships
+* **`metrics`** — aggregated repository statistics
 
 ---
 
 ## Architecture
 
-```
+```text
 GitHub-DNA/
 ├── backend/
 │   ├── api/
-│   │   └── main.py              # FastAPI app, POST /analyze endpoint
+│   │   └── main.py              # FastAPI app and API endpoints
 │   ├── analyzers/
 │   │   ├── repository.py        # File walker + classifier
 │   │   ├── dependency.py        # AST-based import graph builder
-│   │   ├── git_history.py       # Git commit history per file
+│   │   ├── git_history.py       # Git commit history analysis
 │   │   └── metrics.py           # Metrics aggregator
-│   └── models/
-│       └── graph.py             # NetworkX directed graph + JSON export
+│   ├── models/
+│   │   └── graph.py             # NetworkX graph + JSON export
+│   └── github_loader.py         # GitHub URL → temporary local clone
 ├── frontend/
 │   └── src/
-│       ├── App.jsx              # Root component + fetch logic
+│       ├── App.jsx              # Root component + API interaction
 │       └── components/
 │           ├── GraphView.jsx    # React Flow renderer + Dagre layout
-│           ├── StatsPanel.jsx   # Left sidebar metrics
-│           └── FileDetailPanel.jsx  # Node detail popup
-├── tests/                       # pytest suite
-├── docs/                        # Architecture spec and phase plan
-├── cache/                       # Runtime JSON cache (auto-created)
+│           ├── StatsPanel.jsx   # Repository metrics
+│           └── FileDetailPanel.jsx
+├── tests/                       # pytest test suite
+├── docs/                        # Architecture and development documentation
+├── cache/                       # Runtime JSON cache
 └── requirements.txt
 ```
 
@@ -98,39 +118,54 @@ GitHub-DNA/
 
 ## Tech Stack
 
-**Backend**
-- Python 3.11+
-- [FastAPI](https://fastapi.tiangolo.com/) — REST API framework
-- [uvicorn](https://www.uvicorn.org/) — ASGI server
-- [GitPython](https://gitpython.readthedocs.io/) — git history extraction
-- [NetworkX](https://networkx.org/) — directed graph model
-- `ast` (standard library) — Python import parsing
+### Backend
 
-**Frontend**
-- React 18
-- [Vite](https://vitejs.dev/) — build tool / dev server
-- [@xyflow/react](https://reactflow.dev/) (React Flow v12) — interactive graph
-- [dagre](https://github.com/dagrejs/dagre) — hierarchical graph layout
-- Vanilla CSS (dark GitHub-inspired theme)
+* **Python 3.11+**
+* **FastAPI** — REST API framework
+* **uvicorn** — ASGI server
+* **GitPython** — Git history extraction
+* **NetworkX** — directed graph model
+* **`ast`** — Python import parsing using the standard library
+
+### Frontend
+
+* **React 18**
+* **Vite** — build tool and development server
+* **@xyflow/react** — interactive graph visualization
+* **dagre** — hierarchical graph layout
+* **Vanilla CSS** — dark GitHub-inspired interface
 
 ---
 
 ## Running the Backend
 
+### 1. Clone the repository
+
 ```bash
-# 1. Clone the repo
 git clone https://github.com/Versh-03/GitHub-DNA.git
 cd GitHub-DNA
-
-# 2. Install Python dependencies
-pip install -r requirements.txt
-
-# 3. Start the backend
-uvicorn backend.api.main:app --reload
-# API available at http://localhost:8000
 ```
 
-**Run tests:**
+### 2. Install Python dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Start the backend
+
+```bash
+uvicorn backend.api.main:app --reload
+```
+
+The API will be available at:
+
+```text
+http://localhost:8000
+```
+
+### Run tests
+
 ```bash
 pytest tests/
 ```
@@ -143,14 +178,22 @@ pytest tests/
 cd frontend
 npm install
 npm run dev
-# UI available at http://localhost:5173
+```
+
+The UI will be available at:
+
+```text
+http://localhost:5173
 ```
 
 ---
 
 ## Example Usage
 
-Open `http://localhost:5173`, enter an absolute path to any local Python repository, and click **Analyse**.
+### Analyze a local repository
+
+Open the application, enter an absolute path to a local Python Git
+repository, and click **Analyse**.
 
 The API call looks like:
 
@@ -160,16 +203,53 @@ curl -X POST http://localhost:8000/analyze \
   -d '{"repo_path": "/absolute/path/to/my-python-project"}'
 ```
 
-Example response (abbreviated):
+### Analyze a public GitHub repository
+
+The deployed version can also analyze a public GitHub repository directly.
+
+For example:
+
+```text
+https://github.com/pallets/flask
+```
+
+GitHub-DNA temporarily clones the repository, runs the same analysis
+pipeline, and removes the temporary clone afterward.
+
+The API endpoint is:
+
+```text
+POST /analyze-github
+```
+
+with:
+
+```json
+{
+  "github_url": "https://github.com/pallets/flask"
+}
+```
+
+### Example response
 
 ```json
 {
   "graph": {
     "nodes": [
-      {"id": "backend/api/main.py", "type": "source", "language": "python", "size_bytes": 2104, "commit_count": 7}
+      {
+        "id": "backend/api/main.py",
+        "type": "source",
+        "language": "python",
+        "size_bytes": 2104,
+        "commit_count": 7
+      }
     ],
     "edges": [
-      {"source": "backend/api/main.py", "target": "backend/analyzers/repository.py", "type": "import"}
+      {
+        "source": "backend/api/main.py",
+        "target": "backend/analyzers/repository.py",
+        "type": "import"
+      }
     ]
   },
   "metrics": {
@@ -177,7 +257,7 @@ Example response (abbreviated):
     "source_files": 8,
     "test_files": 4,
     "total_commits": 42,
-    "contributors_count": 1,
+    "contributor_count": 1,
     "total_edges": 11
   }
 }
@@ -185,7 +265,17 @@ Example response (abbreviated):
 
 ---
 
-**Limitations (current scope):**
-- Only analyses Python repositories (JavaScript / other languages not yet supported)
-- Requires a locally accessible repository path — no remote URL support
-- No authentication or multi-user support
+## Deployed Version
+
+* **Frontend:** [https://github-dna-three.vercel.app/](https://github-dna-three.vercel.app/)
+* **Backend API:** [https://github-dna.onrender.com/](https://github-dna.onrender.com/)
+* **API documentation:** [https://github-dna.onrender.com/docs](https://github-dna.onrender.com/docs)
+
+---
+
+## Limitations
+
+* Only Python repositories are currently supported.
+* GitHub URL analysis supports public repositories only.
+* No authentication or multi-user support.
+* GitHub URL analysis depends on the repository being publicly accessible.
