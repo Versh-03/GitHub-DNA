@@ -183,8 +183,6 @@ fabricated figures.
 
 A small-to-medium, real, public Python repository (~30–60 Python files)
 with genuine commit history, chosen for legibility of the resulting graph.
-Final choice to be confirmed and placed in `sample-repository/` (or
-referenced by path/URL) before demo recording.
 
 ## 12. Non-Functional Requirements
 
@@ -238,7 +236,7 @@ development tool. Intended usage of Bob's features:
 - [x] Frontend displays stats panel and interactive dependency graph.
 - [x] pytest suite passes for all analyzer modules.
 - [ ] Real before/after metrics recorded in README table.
-- [ ] Bob evidence collected across Plan/Agent/Subagents/Parallel/Testing.
+- [x] Bob evidence collected across Plan/Agent/Subagents/Parallel/Testing.
 - [ ] Repository is public, structured as in Section 7.
 
 ---
