@@ -52,6 +52,8 @@ def compute_metrics(
     total_commits    = git_history.get("total_commits", 0)
     contributor_count = git_history.get("contributor_count", 0)
     top_changed_files = git_history.get("top_changed_files", [])
+    #top_changed_files = git_history.get("top_changed_files", [])
+    git_history_error = git_history.get("error")
 
     # --- graph-derived: top connected files (in-degree + out-degree) ---
     top_connected_files: list[dict] = []
@@ -98,4 +100,5 @@ def compute_metrics(
         "largest_files": largest_files,
         "recently_modified_files": recently_modified_files,
         "total_edges": len(edges),
+        "git_history_error": git_history_error,
     }

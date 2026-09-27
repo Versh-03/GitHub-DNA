@@ -86,7 +86,7 @@ def cloned_repo(url: str) -> Generator[str, None, None]:
     tmp_dir = tempfile.mkdtemp(prefix="gitdna_clone_")
     try:
         result = subprocess.run(  # noqa: S603 — no user code executed
-            ["git", "clone", "--depth", "1", canonical_url, tmp_dir],
+            ["git", "clone", canonical_url, tmp_dir],
             capture_output=True,
             text=True,
             timeout=CLONE_TIMEOUT,
@@ -95,6 +95,18 @@ def cloned_repo(url: str) -> Generator[str, None, None]:
             raise CloneError(
                 f"git clone failed (exit {result.returncode}):\n{result.stderr.strip()}"
             )
+
+        # Mark this directory as safe so git commands (git log, git status,
+        # etc.) work even when the process user differs from the directory
+        # owner — necessary on containerized platforms like Render, where
+        # the app runs as a non-root user and modern git otherwise refuses
+        # to operate on the repo ("detected dubious ownership").
+        subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", tmp_dir],
+            capture_output=True,
+            text=True,
+        )
+
         yield tmp_dir
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

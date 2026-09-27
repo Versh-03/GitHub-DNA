@@ -43,28 +43,49 @@ def analyze_git_history(repo_path: str) -> dict:
     total_commits = 0
     contributors: set[str] = set()
     file_commit_counts: dict[str, int] = {}
+    stats_errors = 0
 
     try:
         for commit in repo.iter_commits():
             total_commits += 1
-            contributors.add(commit.author.email)
-            for file_path in commit.stats.files:
-                file_commit_counts[file_path] = (
-                    file_commit_counts.get(file_path, 0) + 1
-                )
+
+            if commit.author.email:
+                contributors.add(commit.author.email)
+
+            # A single problematic commit should not erase the
+            # history information we already collected.
+            try:
+                for file_path in commit.stats.files:
+                    file_commit_counts[file_path] = (
+                        file_commit_counts.get(file_path, 0) + 1
+                    )
+            except git.GitCommandError:
+                stats_errors += 1
+                continue
+
     except git.GitCommandError as exc:
-        # Repo exists but has no commits yet (empty repo) or other git error
-        return {**_EMPTY_RESULT, "error": str(exc)}
+        return {
+            **_EMPTY_RESULT,
+            "error": f"Unable to read git history: {exc}",
+        }
 
     top_changed_files = sorted(
-        [{"path": p, "commit_count": c} for p, c in file_commit_counts.items()],
+        [
+            {"path": path, "commit_count": count}
+            for path, count in file_commit_counts.items()
+        ],
         key=lambda x: x["commit_count"],
         reverse=True,
     )[:10]
 
-    return {
+    result = {
         "total_commits": total_commits,
         "contributor_count": len(contributors),
         "file_commit_counts": file_commit_counts,
         "top_changed_files": top_changed_files,
     }
+
+    if stats_errors:
+        result["stats_errors"] = stats_errors
+
+    return result

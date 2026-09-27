@@ -45,6 +45,10 @@ def _run_pipeline(repo_path: str) -> dict:
     files       = walk_repository(repo_path)
     edges       = build_dependency_edges(files, repo_path=repo_path)
     git_history = analyze_git_history(repo_path)
+    print("=== GIT HISTORY DEBUG ===")
+    print("repo_path:", repo_path)
+    print("result:", git_history)
+    print("=========================")
     graph       = build_graph(files, edges)
     graph_json  = graph_to_json(graph, git_history)
     metrics     = compute_metrics(files, edges, git_history, graph)
@@ -95,9 +99,8 @@ def analyze(request: AnalyzeRequest) -> dict:
 def analyze_github(request: AnalyzeGitHubRequest) -> dict:
     """Clone a public GitHub repository and run the full Git DNA pipeline on it.
 
-    The repository is cloned into a temporary directory with ``git clone
-    --depth 1``, analyzed, and the temporary directory is deleted afterwards.
-    No code from the cloned repository is executed.
+    The repository is cloned into a temporary directory, analyzed, and the
+    temporary directory is deleted afterwards.
 
     Raises
     ------
