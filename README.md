@@ -6,7 +6,7 @@
 
 ## The Problem
 
-Joining a new codebase is slow. Developers can spend significant time reading files and tracing relationships manually, how things connect; which modules depend on which, which files change the most, and who owns what. There is no easy "map" of the code.
+Joining a new codebase is slow. Developers can spend significant time reading files and tracing relationships manually, how things connect; which modules depend on which, which files change the most, which files are connected, and which contributors have worked on the repository.. There is no easy "map" of the code.
 
 ---
 
