@@ -24,7 +24,7 @@ app = FastAPI(title="Git DNA")
 # Allow the Vite dev server (and any localhost origin) to call this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173","https://github-dna-three.vercel.app"],
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
